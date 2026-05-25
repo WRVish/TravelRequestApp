@@ -1,0 +1,12 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/copy-assets.2.0.json",
+    "deployCdnPath": "temp/deploy",
+    "sourcePath": "src",
+    "destinationPath": "lib",
+    "include": [
+        "**/*.scss",
+        "**/*.json",
+        "**/*.png",
+        "**/*.jpg"
+    ]
+}

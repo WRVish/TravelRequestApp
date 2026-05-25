@@ -1,0 +1,8 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/heft/sass.schema.json",
+    "srcFolder": "src",
+    "generatedTsFolder": "src",
+    "cssOutputFolders": [
+        "lib"
+    ]
+}

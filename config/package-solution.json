@@ -1,0 +1,41 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/package-solution.2.0.json",
+    "solution": {
+        "name": "custom-travel-request-client-side-solution",
+        "id": "e36e671c-8b89-4a00-99b3-192667104870",
+        "version": "1.0.0.0",
+        "iconPath": "assets/package-icon.png",
+        "includeClientSideAssets": true,
+        "skipFeatureDeployment": true,
+        "isDomainIsolated": false,
+        "developer": {
+            "name": "",
+            "websiteUrl": "",
+            "privacyUrl": "",
+            "termsOfUseUrl": "",
+            "mpnId": "Undefined-1.22.0"
+        },
+        "metadata": {
+            "shortDescription": {
+                "default": "Custom Travel Request Web Part"
+            },
+            "longDescription": {
+                "default": "Custom Travel Request Web Part allowing dynamic selection of SharePoint lists and column mappings for travel requests entry."
+            },
+            "screenshotPaths": [],
+            "videoUrl": "",
+            "categories": []
+        },
+        "features": [
+            {
+                "title": "Custom Travel Request Feature",
+                "description": "The feature that activates the Custom Travel Request web part",
+                "id": "2c03119e-3074-46fd-976b-c60198311f74",
+                "version": "1.0.0.0"
+            }
+        ]
+    },
+    "paths": {
+        "zippedPackage": "../solution/custom-travel-request.sppkg"
+    }
+}

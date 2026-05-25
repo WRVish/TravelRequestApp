@@ -1,0 +1,19 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/config.2.0.json",
+    "version": "2.0",
+    "bundles": {
+        "custom-travel-request-web-part": {
+            "components": [
+                {
+                    "entrypoint": "./lib/webparts/customTravelRequest/CustomTravelRequestWebPart.js",
+                    "manifest": "./src/webparts/customTravelRequest/CustomTravelRequestWebPart.manifest.json"
+                }
+            ]
+        }
+    },
+    "externals": {},
+    "localizedResources": {
+        "CustomTravelRequestWebPartStrings": "lib/webparts/customTravelRequest/loc/en-us.js",
+        "PropertyControlStrings": "node_modules/@pnp/spfx-property-controls/lib/loc/{locale}.js"
+    }
+}

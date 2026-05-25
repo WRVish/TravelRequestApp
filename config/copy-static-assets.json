@@ -1,0 +1,17 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/heft/copy-static-assets.schema.json",
+    "copyOperations": [
+        {
+            "sourcePath": "src",
+            "destinationNodes": [
+                "lib"
+            ],
+            "includeGlobs": [
+                "**/*.scss",
+                "**/*.json",
+                "**/*.png",
+                "**/*.jpg"
+            ]
+        }
+    ]
+}

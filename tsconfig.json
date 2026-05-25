@@ -1,0 +1,24 @@
+{
+    "extends": "./node_modules/@microsoft/spfx-web-build-rig/profiles/default/tsconfig-base.json",
+    "compilerOptions": {
+        "outDir": "./lib",
+        "typeRoots": [
+            "./node_modules/@types",
+            "./node_modules/@microsoft"
+        ],
+        "lib": [
+            "es2021.string",
+            "dom",
+            "es6",
+            "es2016"
+        ]
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx"
+    ],
+    "exclude": [
+        "node_modules",
+        "lib"
+    ]
+}

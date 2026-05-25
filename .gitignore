@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# SPFx Build outputs
+dist/
+lib/
+lib-commonjs/
+temp/
+release/
+sharepoint/
+
+# Custom Excludes
+post/
+
+# OS/System files
+.DS_Store
+thumbs.db
+*.log
