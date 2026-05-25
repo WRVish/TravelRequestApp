@@ -313,6 +313,7 @@ export default class CustomTravelRequestWebPart extends BaseClientSideWebPart<IC
                   label: 'Fallback Approvers',
                   initialData: this.properties.fallbackApprovers,
                   allowDuplicate: false,
+                  multiSelect: true,
                   principalType: [PrincipalType.Users],
                   onPropertyChange: this.onPropertyPaneFieldChanged,
                   context: this.context as any,

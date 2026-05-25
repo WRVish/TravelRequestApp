@@ -1,0 +1,288 @@
+<p>Building a <strong>Power Automate travel request approval flow</strong> is the best way to automate your company's
+  travel bookings for free, without paying for expensive third-party tools or premium Power Platform licenses. By
+  combining native Microsoft 365 features, you can build a fully automated, enterprise-grade solution in just 5 steps
+  using a custom SPFx web part, relational SharePoint lists, and automated PDF generation.</p>
+
+<p>Whether you need to capture itemized flights, hotels, and meal costs, or require a clean PDF receipt sent to
+  travelers upon approval, this solution handles it all for free. Let's walk through how to build your own <strong>free
+    travel request approval SharePoint</strong> system from scratch.</p>
+
+<!-- Placeholder for Video Demo -->
+<div
+  style="background-color: #f8fafc; border: 2px dashed #cbd5e1; padding: 40px; text-align: center; border-radius: 8px; margin: 25px 0;">
+  <span style="font-size: 32px;">🎥</span>
+  <div style="font-size: 18px; font-weight: bold; margin: 10px 0 5px 0; color: #0f172a;">[PLACEHOLDER: Video Walkthrough
+    of the Travel Request App]</div>
+  <p style="margin: 0; color: #64748b; font-size: 14px;">Upload a video demo showing the SPFx form submission, manager
+    approval on Teams, and the final PDF receipt email.</p>
+</div>
+
+
+<h2>Why This M365 Setup is Completely Free</h2>
+<p>Many developers assume that generating PDFs or building parent-child forms in Microsoft 365 requires premium
+  licensing (like Power Apps premium or Adobe PDF connectors). This setup remains 100% free by using:</p>
+<ul>
+  <li>A custom <strong>SPFx travel request web part</strong> to render a rich, responsive interface inside SharePoint.
+    You can learn more in the official <a
+      href="https://learn.microsoft.com/en-us/sharepoint/dev/spfx/sharepoint-framework-overview" target="_blank"
+      rel="noopener">SharePoint Framework documentation</a>.</li>
+  <li>A relational <strong>SharePoint parent-child list</strong> structure to store trip metadata and individual cost
+    estimates without premium SQL databases.</li>
+  <li>The standard OneDrive for Business connector for <strong>OneDrive HTML to PDF Power Automate</strong> conversions.
+    Check the <a href="https://learn.microsoft.com/en-us/power-automate/" target="_blank" rel="noopener">Microsoft Power
+      Automate documentation</a> for general connector limits.</li>
+  <li>A dynamic attachment variable to handle <strong>SharePoint approval email attachments</strong> without flow
+    errors.</li>
+</ul>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="step-1">Step 1: Provision the SharePoint Parent-Child List Schema</h2>
+<p>To capture relational travel requests, we must establish a <strong>SharePoint parent-child list</strong> design. The
+  parent list tracks general trip details, while the child list tracks itemized cost estimates linked via a Lookup
+  Column.</p>
+
+<!-- Placeholder for list schema diagram -->
+<div
+  style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; text-align: center; border-radius: 8px; margin: 25px 0; font-family: monospace;">
+  <p style="margin: 0; font-weight: bold; color: #1e3a8a;">[Travel Request (Parent)] ──(ID Link)──► [Travel Request
+    Details (Child)]</p>
+</div>
+
+<h3>Parent List: <code>Travel Request</code></h3>
+<p>Create a list named <em>Travel Request</em> with the following columns:</p>
+<ul>
+  <li><code>Title</code> (Single line of text) - Trip purpose (e.g. "Annual Conference").</li>
+  <li><code>TravelID</code> (Single line of text) - Auto-generated tracking ID.</li>
+  <li><code>Traveler</code> (Person or Group) - Submitter.</li>
+  <li><code>TravelerEmail</code> (Single line of text) - Submitter's email.</li>
+  <li><code>Destination</code> (Single line of text) - City and Country.</li>
+  <li><code>FromDate</code> (Date and Time) - Departure date.</li>
+  <li><code>ToDate</code> (Date and Time) - Return date.</li>
+  <li><code>EstimatedCost</code> (Currency) - Total trip budget.</li>
+  <li><code>TravelStatus</code> (Choice) - Submitted, Pending Approval, Approved, Rejected.</li>
+  <li><code>Approver</code> (Single line of text) - Approving manager's email.</li>
+  <li><code>Comments</code> (Multiple lines of text) - Reviewer comments.</li>
+  <li><code>ApprovalDate</code> (Date and Time) - Decision timestamp.</li>
+</ul>
+
+<h3>Child List: <code>Travel Request Details</code></h3>
+<p>Create a list named <em>Travel Request Details</em>. Create these columns: <code>Title</code> (description),
+  <code>ExpenseDate</code> (date), <code>Category</code> (Choice: Flight, Hotel, Meals, Train, Other), and
+  <code>Amount</code> (Currency). Then, add a **Lookup Column** named <code>TravelRequest</code> pointing to the **ID**
+  column of the parent <em>Travel Request</em> list.
+</p>
+
+<h3>Admin Options List: <code>Admin Options</code></h3>
+<p>Create a table named <em>Admin Options</em> to store company branding metadata: <code>Title</code>,
+  <code>CompanyName</code>, <code>CompanyAddress</code> (Multi-line text), <code>FooterText</code> (Multi-line text),
+  and <code>App</code> (Choice: TravelRequest, ExpenseClaim).
+</p>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="step-2">Step 2: Deploy the Custom SPFx Travel Request Web Part</h2>
+<p>To let users submit data, deploy the custom React <strong>SPFx travel request web part</strong>. This front-end
+  component provides auto-completion for traveler profiles, performs live departure/return date validation, and
+  calculates live budget totals.</p>
+
+<p>The SPFx component queries Azure Active Directory (AAD) to automatically resolve the traveler's manager. If a manager
+  is registered, the form displays the manager as a read-only value, ensuring requests route directly to them. If no
+  manager is found in AAD, the form dynamically renders a dropdown selection showing the fallback approvers configured
+  in the web part properties. Upon submission, the app performs a two-stage transaction to save the parent request first
+  and then write the child cost lines, linking them using the parent item's ID.</p>
+
+<!-- Placeholder for Web Part UI Screenshot -->
+<div
+  style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; text-align: center; border-radius: 8px; margin: 25px 0;">
+  <img src="[PLACEHOLDER: screenshot-spfx-form.png]" alt="SPFx travel request web part form submission screen"
+    style="max-width: 100%; height: auto; border-radius: 6px;" />
+  <p style="margin: 8px 0 0 0; color: #64748b; font-size: 13px; font-style: italic;">The custom SPFx web part form
+    displaying live cost estimation and manager detection.</p>
+</div>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="step-3">Step 3: Configure Your Power Automate Travel Request Approval Flow</h2>
+<!-- Placeholder for High Level Flow Design Screenshot -->
+<div
+  style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; text-align: center; border-radius: 8px; margin: 25px 0;">
+  <img src="[PLACEHOLDER: screenshot-high-level-flow-design.png]"
+    alt="High level layout of the Power Automate travel request approval flow showing trigger and steps"
+    style="max-width: 100%; height: auto; border-radius: 6px;" />
+  <p style="margin: 8px 0 0 0; color: #64748b; font-size: 13px; font-style: italic;">The high-level visual mapping of
+    the Power Automate cloud flow architecture.</p>
+</div>
+
+<p>Now, let's build the <strong>Power Automate travel request approval flow</strong>. Create an *Automated cloud flow*
+  triggered **When an item is created** in your parent `Travel Request` list.</p>
+
+<p>Directly below the trigger block, add three **Initialize variable** actions. These variables must reside at the root
+  level of the flow to prevent validation errors:</p>
+<ol>
+  <li><code>RequestID</code> (String) - Mapped to the formatted tracking code.</li>
+  <li><code>EmailAttachments</code> (Array) - Holds the PDF file attachments dynamically.</li>
+  <li><code>TravelStatus</code> (String) - Stores the final decision status.</li>
+</ol>
+
+<p>Add a **Compose** block to generate your corporate request ID:</p>
+<pre
+  style="background-color: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 6px; font-family: monospace;">concat('TRV-', formatDateTime(utcNow(), 'yyyy'), '-', triggerBody()?['ID'])</pre>
+<p>Store this composed output in <code>RequestID</code> and use SharePoint's **Update item** action to write it back to
+  the parent item's <code>TravelID</code> column.</p>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="step-4">Step 4: Fetch Child Details and Format Markdown Data Tables</h2>
+<p>To display all trip items inside the <strong>Power Automate travel request approval flow</strong> cards, we need to
+  query child records. Add a SharePoint **Get items** action named <em>Get Items - Travel Details</em> targeting the
+  child list. To query linked records, use this OData filter query:</p>
+<pre
+  style="background-color: #0f172a; color: #f43f5e; padding: 10px; border-radius: 6px; font-family: monospace;">TravelRequestID eq @{triggerBody()?['ID']}</pre>
+
+<p>Next, format the child costs using Data Operations actions:</p>
+<ol>
+  <li><strong>Select (PDF Mapping):</strong> Map Date, Title, Category, and Amount. Map choice fields using the path
+    <code>item()?['Category']?['Value']</code>.
+  </li>
+  <li><strong>Create HTML Table:</strong> Generate the raw HTML table from the PDF select outputs.</li>
+  <li><strong>Select (Markdown Mapping):</strong> Convert rows to markdown for the approval card. Switch Map to text
+    mode and paste:
+    <pre
+      style="background-color: #0f172a; color: #e2e8f0; padding: 8px; border-radius: 4px; font-size: 12px; margin-top: 5px;">@{concat('| ', formatDateTime(item()?['ExpenseDate'], 'yyyy-MM-dd'), ' | ', item()?['Title'], ' | ', item()?['Category']?['Value'], ' | ', string(item()?['Amount']), ' |')}</pre>
+  </li>
+  <li><strong>Join Markdown:</strong> Join the markdown select output using <code>decodeUriComponent('%0A')</code>
+    (newline). Combine it with a header Compose block to form the final markdown breakdown table.</li>
+</ol>
+
+<p>Add the **Start and wait for an approval** action. Set the type to <em>Approve/Reject - First to respond</em>, assign
+  it to <code>triggerBody()?['Approver']</code>, and embed your composed Markdown table in the Details field.</p>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="step-5">Step 5: Route Approvals & Send Dynamic Email Notifications</h2>
+<p>Add a **Condition** check: <code>Outcome is equal to Approve</code>. This splits the flow logic based on the
+  manager's response.</p>
+
+<h3>Branch A: If Yes (Approved Path)</h3>
+<ol>
+  <li>Update the parent status to "Approved" and set the <code>TravelStatus</code> variable to "Approved".</li>
+  <li>Query configuration metadata from the <em>Admin Options</em> list where <code>App eq 'TravelRequest'</code>.</li>
+  <li>Compose the HTML layout containing traveler info and the dynamic HTML table:
+    <code>@{body('Create_HTML_table')}</code>.
+  </li>
+  <li>Use OneDrive to execute the <strong>OneDrive HTML to PDF Power Automate</strong> conversion:
+    <ul>
+      <li>OneDrive **Create file**: Save HTML report to <code>/temp/TravelRequest_@{variables('RequestID')}.html</code>.
+      </li>
+      <li>OneDrive **Convert file (Preview)**: Convert the temporary HTML file to PDF.</li>
+      <li>OneDrive **Delete file**: Clean up the temp HTML file.</li>
+    </ul>
+  </li>
+  <li>Append the converted PDF to the <code>EmailAttachments</code> array variable:
+    <pre
+      style="background-color: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; font-size: 13px; margin-top: 5px;">
+{
+  "Name": "TravelRequest_@{variables('RequestID')}.pdf",
+  "ContentBytes": @{body('Convert_file')}
+}
+    </pre>
+  </li>
+</ol>
+
+<h3>Branch B: If No (Rejected Path)</h3>
+<ol>
+  <li>Update the parent status to "Rejected" and set the <code>TravelStatus</code> variable to "Rejected".</li>
+</ol>
+
+<h3>Outside the Condition: Dynamic Notification & Auditing</h3>
+<!-- Placeholder for Approval Email Screenshot -->
+<div
+  style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; text-align: center; border-radius: 8px; margin: 25px 0;">
+  <img src="[PLACEHOLDER: screenshot-approval-email.png]"
+    alt="Outlook approval email notification containing itemized travel details table"
+    style="max-width: 100%; height: auto; border-radius: 6px;" />
+  <p style="margin: 8px 0 0 0; color: #64748b; font-size: 13px; font-style: italic;">The dynamic email notification
+    containing approval comments and itemized travel details.</p>
+</div>
+
+<p>At the root level below the condition block, add a single **Send an email (V2)** action. This architecture handles
+  **SharePoint approval email attachments** dynamically:</p>
+<ul>
+  <li><strong>To:</strong> <code>triggerBody()?['TravelerEmail']</code></li>
+  <li><strong>Subject:</strong> <code>Travel Request @{variables('TravelStatus')} - @{variables('RequestID')}</code>
+  </li>
+  <li><strong>Body:</strong> Paste the HTML email template. Include dynamic comments and the HTML breakdown table.</li>
+  <li><strong>Attachments:</strong> Click the **Switch Map to input entire array** button on the right-hand side of the
+    Attachments header, and bind it to the <code>variables('EmailAttachments')</code> array.</li>
+</ul>
+
+<p>Add an **Update item** action to write the approver's email, decision timestamp, and comments back to the parent
+  item, and end the flow with a **Terminate** action set to <em>Succeeded</em>.</p>
+
+<!-- Placeholder for PDF Invoice Screenshot -->
+<div
+  style="background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; text-align: center; border-radius: 8px; margin: 25px 0;">
+  <img src="[PLACEHOLDER: screenshot-after-approval-pdf-screen.png]"
+    alt="Generated PDF travel authorization report showing company header and cost tables"
+    style="max-width: 100%; height: auto; border-radius: 6px;" />
+  <p style="margin: 8px 0 0 0; color: #64748b; font-size: 13px; font-style: italic;">The official PDF travel
+    authorization report generated after approval.</p>
+</div>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 30px 0;" />
+
+<h2 id="enhancements">Optional Enterprise Enhancements</h2>
+<p>Once the core <strong>Power Automate travel request approval flow</strong> is running, you can add optional
+  improvements:</p>
+<ul>
+  <li><strong>Microsoft Teams Notifications:</strong> Add a Teams <em>Post message in a chat or channel</em> card before
+    the logging step to send real-time alerts to the traveler.</li>
+  <li><strong>Try-Catch Error Scoping:</strong> Wrap your actions inside a "Main Processing" scope, and build a "Catch
+    Error Handler" scope configured to run after failure to write exceptions to your <code>Flow Error Logs</code> list.
+  </li>
+  <li><strong>Font Icons in PDF:</strong> Add a <code>FontIcon</code> field to the Admin Options list, load Font Awesome
+    inside the HTML head, and render dynamic icons in the PDF report header.</li>
+</ul>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 40px 0;" />
+
+<h2 id="github">Full Source Code on GitHub</h2>
+<p>Everything you need to deploy this solution is in the open-source repository. No piecing together — it is all there
+  and ready to clone.</p>
+
+<ul>
+  <li>Complete SPFx web part TypeScript and React source code</li>
+  <li>Power Automate flow export (.zip) ready to import into your environment</li>
+  <li>SharePoint list CSV schemas for all three lists</li>
+  <li>HTML PDF template with inline CSS</li>
+  <li>Step-by-step <code>Implementation-Guide.md</code> covering every action card with screenshots</li>
+</ul>
+
+<div style="background:#24292e; border-radius:10px; padding:28px 30px; margin:28px 0; text-align:center;">
+  <p
+    style="color:#fff; font-size:1.05em; font-weight:600; margin:0 0 6px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    WRVish / TravelRequestApp</p>
+  <p
+    style="color:#aaa; margin:0 0 20px 0; font-size:0.9em; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Open-source · SPFx + Power Automate + SharePoint · Full implementation guide included</p>
+  <a href="https://github.com/WRVish/TravelRequestApp" target="_blank" rel="noopener"
+    style="display:inline-block;background:#2ea44f;color:#fff;padding:12px 26px;text-decoration:none;border-radius:6px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:0.95em;margin-bottom:12px;">⭐
+    Star and Clone on GitHub</a>
+  <br />
+  <a href="https://github.com/WRVish/TravelRequestApp/discussions" target="_blank" rel="noopener"
+    style="display:inline-block;background:transparent;color:#58a6ff;padding:9px 22px;text-decoration:none;border-radius:6px;font-weight:500;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:0.9em;border:1px solid #58a6ff;margin-top:8px;">💬
+    Ask a question in Discussions</a>
+</div>
+
+<p>If this <strong>Power Automate travel request approval flow</strong> saved you time or licensing cost, a ⭐ star on
+  the repository helps other Power Platform developers find it when they need it.</p>
+
+<hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 40px 0 20px 0;" />
+
+<p style="font-size: 14px; color: #64748b; text-align: center;">
+  Browse more guides on
+  <a href="https://www.wrvishnu.com/category/power-platform/" target="_blank" rel="noopener">Power Platform</a>,
+  <a href="https://www.wrvishnu.com/category/sharepoint/" target="_blank" rel="noopener">SharePoint</a>, and
+  <a href="https://www.wrvishnu.com/category/copilot/" target="_blank" rel="noopener">Copilot</a> on VishPowerLabs.
+</p>

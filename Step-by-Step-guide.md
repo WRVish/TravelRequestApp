@@ -89,7 +89,6 @@ A configuration table used to manage system metadata dynamically for multiple ap
 | `Title` | Single Line of Text | **Yes** | Configuration key identifier (e.g., "Global Config"). |
 | `CompanyName` | Single Line of Text | **Yes** | Injected into the top section of the generated PDF. |
 | `CompanyAddress` | Multiple Lines of Text | **Yes** | Corporate billing address rendered on the PDF. |
-| `LogoURL` | Hyperlink | No | Optional source URL for the corporate logo image. |
 | `FooterText` | Multiple Lines of Text | No | Compliance/legal text printed at the bottom of the PDF. |
 | `App` | Choice | **Yes** | Identifies the target application (choices: `TravelRequest`, `ExpenseClaim`). |
 
@@ -156,38 +155,39 @@ The project uses the **Heft** build toolchain profile:
 
 ## 4. Power Automate Step-by-Step Flow Blueprint
 
-Follow these steps to build the processing and approval sequence. This maps the flow layout shown in the architectural image exactly.
+Follow these steps to build the processing and approval sequence. This map:
 
 ```text
 [Flow Trigger: When an item is created]
        │
-[Step 2 — Initialize Variables] (RequestID, ManagerEmail, Status)
+[Step 2 — Initialize Variables] (RequestID, EmailAttachments, TravelStatus)
        │
-[Step 3 — Get Manager Details] (Get manager of the requester)
+[Step 3 — Travel ID Construction & Parent ID Update]
        │
-[Step 4 — Travel ID Construction & Variable Updates]
+[Step 4 — Fetch Child Travel Details] (Query child details from list)
        │
-[Step 5 — Create an Approval (Start and wait)] (Approver: Manager)
+[Step 5 — Select & Format Details] (Format HTML and Markdown tables)
        │
-[Step 6 — Condition: Check Approval Outcome]
+[Step 6 — Create an Approval (Start and wait)] (Approver: triggerBody()?['Approver'], Details: Includes child markdown table)
+       │
+[Step 7 — Condition: Check Approval Outcome]
  ├── YES (Approved Branch)
- │    ├── [5.1 Update item status] (Set status to 'Approved' and update parent list)
- │    ├── [5.2 Fetch child details & admin branding configuration]
- │    ├── [5.3 Create HTML document & convert to PDF via OneDrive]
- │    ├── [5.4 Create final PDF in SharePoint Online]
- │    ├── [5.5 Send approval email to requester with PDF attached]
- │    └── [5.6 Post approval message in Teams]
+ │    ├── [7.1 Update item status] (Set status to 'Approved' and update parent list)
+ │    ├── [7.2 Set TravelStatus variable] (Set to 'Approved')
+ │    ├── [7.3 Fetch admin branding configuration]
+ │    ├── [7.4 Create HTML document & convert to PDF via OneDrive]
+ │    ├── [7.5 Delete temp HTML file from OneDrive]
+ │    └── [7.6 Append PDF file to EmailAttachments array variable]
  │
  └── NO (Rejected Branch)
-      ├── [5.1 Update item status] (Set status to 'Rejected' and update parent list)
-      ├── [5.2 Send rejection email with comments]
-      └── [5.3 Post rejection message in Teams]
+      ├── [7.1 Update item status] (Set status to 'Rejected' and update parent list)
+      └── [7.2 Set TravelStatus variable] (Set to 'Rejected')
        │
-[Step 7 — Log Approval Details] (Outside condition: Store approver, date, comments, status in SharePoint list)
+[Step 8 — Send Dynamic Email & Teams Notification] (Outside condition: Use TravelStatus and EmailAttachments)
        │
-[Step 8 — Send Final Confirmation Email to Requester] (Outside condition: With status and comments)
+[Step 9 — Log Approval Details] (Outside condition: Store approver, date, comments in SharePoint list)
        │
-[Step 9 — End / Terminate Succeeded]
+[Step 10 — End / Terminate Succeeded]
 ```
 
 ---
@@ -207,102 +207,125 @@ Add three **Initialize variable** actions directly under the trigger block:
 1. **Name:** `RequestID`
    - **Type:** Select `String`.
    - **Value:** *Leave empty.*
-2. **Name:** `ManagerEmail`
-   - **Type:** Select `String`.
-   - **Value:** Bind the approver email submitted by the SPFx form: `triggerOutputs()?['body/Approver']` *(Since the SPFx form already pre-fills the manager or falls back to the configured dropdown value, we bind it directly here to handle cases where a user has no manager).*
-3. **Name:** `Status`
+2. **Name:** `EmailAttachments`
+   - **Type:** Select `Array`.
+   - **Value:** *Leave empty.*
+3. **Name:** `TravelStatus`
    - **Type:** Select `String`.
    - **Value:** *Leave empty.*
 
 ---
 
-### Step 3 — Get Manager Details (Optional Backup)
-*Note: Since we initialized `ManagerEmail` directly from the SharePoint item's `Approver` field, this step serves as a backup check in case the Approver value was blank.*
-1. Add a **Condition** card to check if `ManagerEmail` is empty.
-2. If empty, add an Office 365 Users action card: **Get manager (V2)**.
-   - **User (UPN):** Bind the traveler's email: `triggerOutputs()?['body/TravelerEmail']`.
-3. Inside the condition, add a **Set variable** action:
-   - **Name:** Select `ManagerEmail`.
-   - **Value:** `outputs('Get_manager_(V2)')?['body/mail']`.
-
----
-
-### Step 4 — Travel ID Construction & Parent ID Update
+### Step 3 — Travel ID Construction & Parent ID Update
 1. Add a **Compose** block named `cmp TravelID` to generate the custom corporate request ID:
    ```powerautomate
-   concat('TRV-', formatDateTime(utcNow(), 'yyyy'), '-', triggerOutputs()?['body/ID'])
+   concat('TRV-', formatDateTime(utcNow(), 'yyyy'), '-', triggerBody()?['ID'])
    ```
 2. Add a **Set variable** action:
    - **Name:** Select `RequestID`.
    - **Value:** Choose the output content of the `cmp TravelID` compose block.
 3. Add a SharePoint **Update item** action for `Travel Request` to write this ID back to the list:
-   - **Id:** `triggerOutputs()?['body/ID']`
-   - **Title:** `triggerOutputs()?['body/Title']`
+   - **Id:** `triggerBody()?['ID']`
+   - **Title:** `triggerBody()?['Title']`
    - **TravelID:** `variables('RequestID')`
    *(Leave all other fields blank to keep traveler-submitted values).*
 
 ---
 
-### Step 5 — Create an Approval (Start and wait)
-1. Add a **Start and wait for an approval** action card:
-   - **Approval Type:** Select `Approve/Reject - First to respond`.
-   - **Title:** Enter: `Travel Request Approval Request - @{variables('RequestID')}`
-   - **Assigned To:** Bind the manager's email variable: `variables('ManagerEmail')`
-   - **Details:** In the details text box, paste traveler details for review:
+### Step 4 — Fetch Child Travel Details
+1. Add a SharePoint **Get items** action named `Get Items - Travel Details`:
+   - **Site Address:** Paste your SharePoint site URL.
+   - **List Name:** Select `Travel Request Details`.
+   - **Filter Query:** `TravelRequestID eq @{triggerBody()?['ID']}`
+
+---
+
+### Step 5 — Select & Format Details
+1. **Format for PDF Report:** Add a Data Operations **Select** action named `Select - Details for PDF`:
+   - **From:** `outputs('Get_Items_-_Travel_Details')?['body/value']`
+   - **Map:** Click the **Switch to text mode** icon (the small `T` icon to the right of the Map label) and paste the following JSON object directly:
+     ```json
+     {
+       "Date": "@{formatDateTime(item()?['ExpenseDate'], 'yyyy-MM-dd')}",
+       "Title": "@{item()?['Title']}",
+       "Category": "@{item()?['Category']?['Value']}",
+       "Description": "@{item()?['Description']}",
+       "Amount": "@{item()?['Amount']}"
+     }
+     ```
+2. **Generate HTML Table:** Add a Data Operations **Create HTML table** action named `Create HTML table` (used later in PDF generation):
+   - **From:** Output of the `Select - Details for PDF` action.
+3. **Format for Approval Card:** Add a Data Operations **Select** action named `Select - Details for Markdown`:
+   - **From:** Bind to the child details value list output: `outputs('Get_Items_-_Travel_Details')?['body/value']`
+   - **Map:** Click the **Switch Map to text mode** icon (the small T-shaped/text icon on the right-hand side of the "Map" label). This changes the Map field from key-value rows to a single text box. Paste the following expression directly:
      ```text
-     A travel booking request requires your administrative review:
-     
-     - **Traveler:** @{triggerOutputs()?['body/TravelerName/DisplayName']}
-     - **Travel ID:** @{variables('RequestID')}
-     - **Destination:** @{triggerOutputs()?['body/Destination']}
-     - **Departure Date:** @{formatDateTime(triggerOutputs()?['body/FromDate'], 'yyyy-MM-dd')}
-     - **Return Date:** @{formatDateTime(triggerOutputs()?['body/ToDate'], 'yyyy-MM-dd')}
-     - **Estimated Total Cost:** @{triggerOutputs()?['body/EstimatedCost']}
+     @{concat('| ', formatDateTime(item()?['ExpenseDate'], 'yyyy-MM-dd'), ' | ', item()?['Title'], ' | ', item()?['Category']?['Value'], ' | ', string(item()?['Amount']), ' |')}
+     ```
+4. **Join Markdown Rows:** Add a Data Operations **Join** action named `Join - Markdown Rows`:
+   - **From:** Bind the output of the select markdown rows action. Open the expression tab and enter:
+     ```text
+     body('Select_-_Details_for_Markdown')
+     ```
+   - **Join with:** Click the field, open the expression tab (`fx`), and enter the following expression to generate a clean newline character separator:
+     ```text
+     decodeUriComponent('%0A')
+     ```
+5. **Assemble Markdown Table:** Add a Data Operations **Compose** action named `cmp Markdown Table` to construct the table header and rows:
+   - **Inputs:** Paste the following markdown block directly into the Inputs text area:
+     ```text
+     | Date | Title | Category | Amount |
+     | --- | --- | --- | --- |
+     @{body('Join_-_Markdown_Rows')}
      ```
 
 ---
 
-### Step 6 — Condition: Check Approval Outcome
+### Step 6 — Create an Approval (Start and wait)
+1. Add a **Start and wait for an approval** action card:
+   - **Approval Type:** Select `Approve/Reject - First to respond`.
+   - **Title:** Enter: `Travel Request Approval Request - @{variables('RequestID')}`
+   - **Assigned To:** Bind the Approver column directly from the trigger output: `triggerBody()?['Approver']`
+   - **Details:** In the details text box, paste traveler details and embed the child markdown table:
+     ```text
+     A travel booking request requires your administrative review:
+     
+     - **Traveler:** @{triggerBody()?['Traveler']?['DisplayName']}
+     - **Travel ID:** @{variables('RequestID')}
+     - **Destination:** @{triggerBody()?['Destination']}
+     - **Departure Date:** @{formatDateTime(triggerBody()?['FromDate'], 'yyyy-MM-dd')}
+     - **Return Date:** @{formatDateTime(triggerBody()?['ToDate'], 'yyyy-MM-dd')}
+     - **Estimated Total Cost:** @{triggerBody()?['EstimatedCost']}
+     
+     ### Estimated Expense Breakdown
+     @{outputs('cmp_Markdown_Table')}
+     ```
+
+---
+
+### Step 7 — Condition: Check Approval Outcome
 Add a **Condition** control block named `Check Approval Outcome`:
 - **Left Parameter:** Select `Outcome` from the dynamic content under `Start and wait for an approval`.
 - **Operator:** Select `is equal to`.
 - **Right Parameter:** Enter: `Approve`
 
 #### Branch A: `If yes` (Approved Path)
-1. Add a **Set variable** action:
-   - **Name:** Select `Status`.
-   - **Value:** Enter: `Approved`
-2. Add a SharePoint **Update item** action to update the item status to Approved:
-   - **Id:** `triggerOutputs()?['body/ID']`
-   - **Title:** `triggerOutputs()?['body/Title']`
+1. Add a SharePoint **Update item** action to update the item status to Approved:
+   - **Id:** `triggerBody()?['ID']`
+   - **Title:** `triggerBody()?['Title']`
    - **TravelStatus/Value:** Choose `Approved`.
 
-3. **Fetch Child Line Items:** Add a SharePoint **Get items** action named `Get Items - Travel Details`:
-   - **Site Address:** Paste your SharePoint site URL.
-   - **List Name:** Select `Travel Request Details`.
-   - **Filter Query:** `TravelRequest/Id eq @{triggerOutputs()?['body/ID']}`
+2. **Set Variable (TravelStatus):** Add a **Set variable** action:
+   - **Name:** Select `TravelStatus`.
+   - **Value:** Enter: `Approved`
 
-4. **Select Columns:** Add a Data Operations **Select** action:
-   - **From:** `outputs('Get_Items_-_Travel_Details')?['body/value']`
-   - **Map (Enter Key-Value pairs):**
-     - **Date:** `formatDateTime(item()?['ExpenseDate'], 'yyyy-MM-dd')`
-     - **Title:** `item()?['Title']`
-     - **Category:** `item()?['Category/Value']`
-     - **Description:** `item()?['Description']`
-     - **Amount:** `item()?['Amount']`
-
-5. **Generate Table:** Add a Data Operations **Create HTML table** action:
-   - **From:** Output of the **Select** action.
-
-6. **Fetch Branding Options:** Add a SharePoint **Get items** action named `Get Items - Admin Options`:
+3. **Fetch Branding Options:** Add a SharePoint **Get items** action named `Get Items - Admin Options`:
    - **Site Address:** Paste your SharePoint site URL.
    - **List Name:** `Admin Options`
    - **Filter Query:** `App eq 'TravelRequest'`
    - **Top Count:** `1`
 
-
-7. **Compose HTML Report:** Add a Data Operations **Compose** action named `cmp HTML Report` to assemble the document:
-   - **Inputs:** Paste the following styled HTML code (with dynamic fields):
+4. **Compose HTML Report:** Add a Data Operations **Compose** action named `cmp HTML Report` to assemble the PDF content:
+   - **Inputs:** Paste the HTML code:
      ```html
      <!DOCTYPE html>
      <html>
@@ -340,12 +363,12 @@ Add a **Condition** control block named `Check Approval Outcome`:
          <div class="meta-col">
            <div class="section-title">Traveler & Journey Details</div>
            <div class="meta-item"><span class="meta-label">Travel ID:</span> @{variables('RequestID')}</div>
-           <div class="meta-item"><span class="meta-label">Traveler Name:</span> @{triggerOutputs()?['body/Traveler/DisplayName']}</div>
-           <div class="meta-item"><span class="meta-label">Traveler Email:</span> @{triggerOutputs()?['body/TravelerEmail']}</div>
-           <div class="meta-item"><span class="meta-label">Destination:</span> @{triggerOutputs()?['body/Destination']}</div>
-           <div class="meta-item"><span class="meta-label">Travel Type:</span> @{triggerOutputs()?['body/TravelType/Value']}</div>
-           <div class="meta-item"><span class="meta-label">Departure Date:</span> @{formatDateTime(triggerOutputs()?['body/FromDate'], 'yyyy-MM-dd')}</div>
-           <div class="meta-item"><span class="meta-label">Return Date:</span> @{formatDateTime(triggerOutputs()?['body/ToDate'], 'yyyy-MM-dd')}</div>
+           <div class="meta-item"><span class="meta-label">Traveler Name:</span> @{triggerBody()?['Traveler']?['DisplayName']}</div>
+           <div class="meta-item"><span class="meta-label">Traveler Email:</span> @{triggerBody()?['TravelerEmail']}</div>
+           <div class="meta-item"><span class="meta-label">Destination:</span> @{triggerBody()?['Destination']}</div>
+           <div class="meta-item"><span class="meta-label">Travel Type:</span> @{triggerBody()?['TravelType']?['Value']}</div>
+           <div class="meta-item"><span class="meta-label">Departure Date:</span> @{formatDateTime(triggerBody()?['FromDate'], 'yyyy-MM-dd')}</div>
+           <div class="meta-item"><span class="meta-label">Return Date:</span> @{formatDateTime(triggerBody()?['ToDate'], 'yyyy-MM-dd')}</div>
          </div>
          <div class="meta-col" style="padding-left: 20px;">
            <div class="section-title">Approval Audit Trail</div>
@@ -360,7 +383,7 @@ Add a **Condition** control block named `Check Approval Outcome`:
        @{body('Create_HTML_table')}
 
        <div class="total-container">
-         Total Budget Authorized: @{triggerOutputs()?['body/EstimatedCost']} USD
+         Total Budget Authorized: @{triggerBody()?['EstimatedCost']} USD
        </div>
 
        <div class="footer">
@@ -371,105 +394,146 @@ Add a **Condition** control block named `Check Approval Outcome`:
      </html>
      ```
 
-8. **Create Temporary HTML in OneDrive:** Add a OneDrive for Business **Create file** action:
+5. **Create Temporary HTML in OneDrive:** Add a OneDrive for Business **Create file** action:
    - **Folder Path:** `/temp`
    - **File Name:** `TravelRequest_@{variables('RequestID')}.html`
    - **File Content:** Output of the `cmp HTML Report` Compose action.
 
-9. **Convert HTML to PDF:** Add a OneDrive for Business **Convert file (Preview)** action:
+6. **Convert HTML to PDF:** Add a OneDrive for Business **Convert file (Preview)** action:
    - **File:** Id from the **Create Temporary HTML** file step.
    - **Target Format:** `PDF`
 
-10. **Save PDF in SharePoint (SPO):** Add a SharePoint **Create file** action:
-    - **Site Address:** Paste your SharePoint site URL.
-    - **Folder Path:** `/Travel Request Documents/GeneratedPDF`
-    - **File Name:** `TravelRequest_@{variables('RequestID')}.pdf`
-    - **File Content:** Output content of the **Convert HTML to PDF** action (File Content).
+7. **Clean Up OneDrive Temp File:** Add a OneDrive for Business **Delete file** action:
+   - **File:** Id from the **Create Temporary HTML** file step.
 
-11. **Clean Up OneDrive Temp File:** Add a OneDrive for Business **Delete file** action:
-    - **File:** Id from the **Create Temporary HTML** file step.
-
-12. **Send Email with PDF Attachment:** Add an Outlook Office 365 **Send an email (V2)** action to notify the traveler and attach the official PDF:
-    - **To:** `triggerOutputs()?['body/TravelerEmail']`
-    - **Subject:** `Travel Request Approved - @{variables('RequestID')}`
-    - **Body:**
-      ```text
-      Hello,
-      
-      Your travel request to @{triggerOutputs()?['body/Destination']} has been approved by your manager.
-      
-      An official travel authorization document has been generated and saved to SharePoint. Please find the PDF attached to this email.
-      
-      Best regards,
-      Corporate Travel Department
-      ```
-    - **Attachments (Click Show Advanced Options):**
-      - **Attachment Name - 1:** `TravelRequest_@{variables('RequestID')}.pdf`
-      - **Attachment Content - 1:** Output content of the **Convert HTML to PDF** action (File Content).
-
-13. Add a Microsoft Teams **Post message in a chat or channel** action to send an approval notice directly to the traveler.
+8. **Append PDF to Attachments Array:** Add an **Append to array variable** action:
+   - **Name:** Select `EmailAttachments`.
+   - **Value:** Paste the following JSON block:
+     ```json
+     {
+       "Name": "TravelRequest_@{variables('RequestID')}.pdf",
+       "ContentBytes": @{body('Convert_file')}
+     }
+     ```
 
 #### Branch B: `If no` (Rejected Path)
-1. Add a **Set variable** action:
-   - **Name:** Select `Status`.
-   - **Value:** Enter: `Rejected`
-2. Add a SharePoint **Update item** action to update the item status to Rejected:
-   - **Id:** `triggerOutputs()?['body/ID']`
-   - **Title:** `triggerOutputs()?['body/Title']`
+1. Add a SharePoint **Update item** action to update the item status to Rejected:
+   - **Id:** `triggerBody()?['ID']`
+   - **Title:** `triggerBody()?['Title']`
    - **TravelStatus/Value:** Choose `Rejected`.
-3. Add an Outlook Office 365 **Send an email (V2)** action to notify the traveler of rejection:
-   - **To:** `triggerOutputs()?['body/TravelerEmail']`
-   - **Subject:** `Travel Request Rejected - @{variables('RequestID')}`
-   - **Body:** Your travel request has been rejected. Comments: `@{first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['comment']}`.
-4. Add a Microsoft Teams **Post message in a chat or channel** action to send a rejection notice directly to the traveler.
+
+2. **Set Variable (TravelStatus):** Add a **Set variable** action:
+   - **Name:** Select `TravelStatus`.
+   - **Value:** Enter: `Rejected`
 
 ---
 
-### Step 7 — Log Approval Details (Outside Condition)
-Add this action below/after the `Check Approval Outcome` condition block so that it executes for both outcomes:
+### Step 8 — Send Notification Email (Outside Condition)
+Add this action below/after the `Check Approval Outcome` condition block so it executes for both outcomes:
+
+1. **Send Dynamic Email:** Add an Outlook Office 365 **Send an email (V2)** action to notify the traveler:
+   - **To:** `triggerBody()?['TravelerEmail']`
+   - **Subject:** `Travel Request @{variables('TravelStatus')} - @{variables('RequestID')}`
+   - **Body:** Switch to the HTML code view (`</>`) in the rich text editor and paste the following:
+     ```html
+     <p>Hello,</p>
+     
+     <p>Your travel request to <strong>@{triggerBody()?['Destination']}</strong> has been <strong>@{variables('TravelStatus')}</strong> by your manager.</p>
+     
+     @{if(equals(variables('TravelStatus'), 'Rejected'), concat('<p><strong>Reason/Comments:</strong> ', first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['comment'], '</p>'), '')}
+     
+     <p>Here are the details of your travel request:</p>
+     <ul>
+       <li><strong>Destination:</strong> @{triggerBody()?['Destination']}</li>
+       <li><strong>Departure Date:</strong> @{formatDateTime(triggerBody()?['FromDate'], 'yyyy-MM-dd')}</li>
+       <li><strong>Return Date:</strong> @{formatDateTime(triggerBody()?['ToDate'], 'yyyy-MM-dd')}</li>
+       <li><strong>Estimated Total Cost:</strong> @{triggerBody()?['EstimatedCost']} USD</li>
+     </ul>
+     
+     <h3>Estimated Expense Breakdown</h3>
+     @{body('Create_HTML_table')}
+     
+     @{if(equals(variables('TravelStatus'), 'Approved'), '<p>An official travel authorization document has been generated and is attached to this email.</p>', '')}
+     
+     <p>Best regards,<br/>
+     Corporate Travel Department</p>
+     ```
+   - **Attachments:** Click the **Switch Map to input entire array** button. Bind it directly to:
+     ```text
+     variables('EmailAttachments')
+     ```
+
+---
+
+### Step 9 — Log Approval Details (Outside Condition)
+Add this action below/after the dynamic email action:
 1. Add a SharePoint **Update item** action pointing to your `Travel Request` list:
-   - **Id:** `triggerOutputs()?['body/ID']`
-   - **Title:** `triggerOutputs()?['body/Title']`
+   - **Id:** `triggerBody()?['ID']`
+   - **Title:** `triggerBody()?['Title']`
    - **Approver:** `first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['responder']?['email']`
    - **Comments:** `first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['comment']`
    - **ApprovalDate:** `first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['responseDate']`
 
 ---
 
-### Step 8 — Send Final Confirmation Email to Requester (Outside Condition)
-Add this action below Step 7:
-1. Add an Outlook Office 365 **Send an email (V2)** action:
-   - **To:** `triggerOutputs()?['body/TravelerEmail']`
-   - **Subject:** `Final Confirmation: Travel Request @{variables('RequestID')} is @{variables('Status')}`
-   - **Body:**
-     ```text
-     Hello,
-     
-     Your travel request has been processed. 
-     
-     - **Status:** @{variables('Status')}
-     - **Approver:** @{first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['responder']?['email']}
-     - **Comments:** @{first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['comment']}
-     
-     Safe travels!
-     ```
-
----
-
-### Step 9 — Terminate Succeeded
+### Step 10 — Terminate Succeeded
 1. Add a **Terminate** action block at the end of the flow:
    - **Status:** Choose `Succeeded`.
 
 ---
 
-## 5. Try-Catch Scope Error Handling
+## 5. Optional Flow Enhancements
 
-Group your variables, get manager, get items, loop, approvals, and branching blocks inside two Scopes:
-1. **Scope_MainProcessing:** Place variables generation, get manager, get items, loop, approvals, and branching blocks inside this scope.
-2. **Scope_ErrorHandler:** Place a SharePoint **Create item** inside this scope targeting `Flow Error Logs` list:
-   - **Title:** `Flow runtime error caught`
-   - **FlowName:** `TravelRequest-ApprovalFlow`
-   - **TravelID:** `variables('RequestID')`
-   - **ErrorMessage:** `actions('Scope_MainProcessing')?['error']?['message']`
-   - **Timestamp:** `utcNow()`
-3. Configure `Scope_ErrorHandler` **Configure Run After** settings to run only if `Scope_MainProcessing` **has failed**, **is skipped**, or **has timed out**.
+This section details optional improvements you can add to your flow to make it production-ready.
+
+---
+
+### Option 1: Microsoft Teams Notifications
+To send dynamic Microsoft Teams alerts to the traveler when their request is approved or rejected:
+1. Add a Microsoft Teams **Post message in a chat or channel** action card directly before/above the **Update item (Log Approval Details)** action:
+   - **Post as:** Choose `Flow bot`.
+   - **Post in:** Choose `Chat with Flow bot`.
+   - **Recipient:** `triggerBody()?['TravelerEmail']`
+   - **Message:** Paste the following expression:
+     ```text
+     Hello, your travel request @{variables('RequestID')} has been @{variables('TravelStatus')}.
+     @{if(equals(variables('TravelStatus'), 'Rejected'), concat('Comments: ', first(outputs('Start_and_wait_for_an_approval')?['body/responses'])?['comment']), '')}
+     ```
+
+---
+
+### Option 2: Try-Catch Error Handling Scope
+To capture and log runtime failures (such as dynamic PDF conversions failing) to the `Flow Error Logs` list:
+1. **Create two Scopes:**
+   - **Scope_MainProcessing:** Place all core actions (Get items, data operations, approvals, condition branches, dynamic notifications, and logging updates) inside this scope. 
+     *Note: The three **Initialize variable** actions (`RequestID`, `EmailAttachments`, `TravelStatus`) must remain at the very top of the flow, outside this scope.*
+   - **Scope_ErrorHandler:** Place a SharePoint **Create item** action inside this scope targeting the `Flow Error Logs` list:
+     - **Title:** `Flow runtime error caught`
+     - **FlowName:** `TravelRequest-ApprovalFlow`
+     - **TravelID:** `variables('RequestID')`
+     - **ErrorMessage:** `actions('Scope_MainProcessing')?['error']?['message']`
+     - **Timestamp:** `utcNow()`
+2. **Configure Run After:** Click the menu (three dots) on `Scope_ErrorHandler`, select **Configure run after**, and check the boxes so that it runs only if `Scope_MainProcessing` **has failed**, **is skipped**, or **has timed out**.
+
+---
+
+### Option 3: Custom Font Icons in the Generated PDF Report
+To add support for dynamic font icons in the header of the generated PDF report:
+1. **Add the Column to SharePoint:** In the `Admin Options` SharePoint list, add a new **Single Line of Text** column named **`FontIcon`** (e.g. to store icon names like `plane` or `briefcase`).
+2. **Include Font Awesome in HTML:** In the **Compose HTML Report** (`cmp HTML Report`) action, add the Font Awesome CDN link inside the HTML `<head>` tag:
+   ```html
+   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+   ```
+3. **Render the Icon:** Modify the `.header` section in the HTML body to render the icon dynamically next to the title:
+   ```html
+   <div class="header" style="display: flex; align-items: center; gap: 12px;">
+     <i class="fa-solid fa-@{first(outputs('Get_Items_-_Admin_Options')?['body/value'])?['FontIcon']}" style="font-size: 24px; color: #1e3a8a;"></i>
+     <span class="title" style="margin-left: 8px;">Corporate Travel Authorization</span>
+   </div>
+   ```
+
+---
+
+## 👨‍💻 Developer & Credits
+
+This corporate workspace and SPFx solutions were designed and implemented by **WRVishnu**. For more premium web part features, custom Microsoft 365 development, and corporate cloud solutions, visit **[www.wrvishnu.com](http://www.wrvishnu.com)**.

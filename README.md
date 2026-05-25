@@ -115,3 +115,10 @@ graph TD
 3.  Upload the packaged solution `solution/custom-travel-request.sppkg`.
 4.  Select **Enable App** (make it available to site collections).
 5.  Add the **Custom Travel Request** web part to any modern page, open the property pane, and configure your list/column mappings.
+
+---
+
+## 👨‍💻 Developer & Credits
+
+This corporate workspace and SPFx solutions were designed and implemented by **WRVishnu**. For more premium web part features, custom Microsoft 365 development, and corporate cloud solutions, visit **[www.wrvishnu.com](http://www.wrvishnu.com)**.
+
